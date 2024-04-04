@@ -76,6 +76,8 @@ class MilvusVectorStore(BasePydanticVectorStore):
         search_config (dict, optional): The configuration used for searching
             the Milvus index. Note that this must be compatible with the index
             type specified by `index_config`. Defaults to None.
+            metadata results. Used when bringing your own collection, can be overwritten
+            at the query level. Defaults to None.
 
     Raises:
         ImportError: Unable to import `pymilvus`.
@@ -117,6 +119,7 @@ class MilvusVectorStore(BasePydanticVectorStore):
     text_key: Optional[str]
     index_config: Optional[dict]
     search_config: Optional[dict]
+    output_fields: Optional[list[str]]
 
     _milvusclient: MilvusClient = PrivateAttr()
     _collection: Any = PrivateAttr()
@@ -135,6 +138,7 @@ class MilvusVectorStore(BasePydanticVectorStore):
         text_key: Optional[str] = None,
         index_config: Optional[dict] = None,
         search_config: Optional[dict] = None,
+        output_fields: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> None:
         """Init params."""
@@ -181,6 +185,8 @@ class MilvusVectorStore(BasePydanticVectorStore):
 
         self._collection = Collection(collection_name, using=self._milvusclient._using)
         self._create_index_if_required()
+
+        self.output_fields = output_fields
 
         logger.debug(f"Successfully created a new collection: {self.collection_name}")
 
@@ -284,7 +290,11 @@ class MilvusVectorStore(BasePydanticVectorStore):
             expr_list = ['"' + entry + '"' for entry in query.node_ids]
             expr.append(f"{MILVUS_ID_FIELD} in [{','.join(expr_list)}]")
 
-        # Limit output fields
+        # Set default output fields if configured
+        if self.output_fields is not None:
+            output_fields = self.output_fields
+
+        # Limit output fields and overwrite if query specifies
         if query.output_fields is not None:
             output_fields = query.output_fields
 
@@ -308,6 +318,16 @@ class MilvusVectorStore(BasePydanticVectorStore):
             f" Num Results: {len(res[0])}"
         )
 
+        metadata_field_exclusions = {
+            self.embedding_field,
+            self.doc_id_field,
+            self.text_key,
+            "*",
+        }
+        metadata_fields = [
+            k for k in output_fields if k not in metadata_field_exclusions
+        ]
+
         nodes = []
         similarities = []
         ids = []
@@ -329,8 +349,11 @@ class MilvusVectorStore(BasePydanticVectorStore):
                         "The passed in text_key value does not exist "
                         "in the retrieved entity."
                     )
+                metadata = {k: hit["entity"].get(k, None) for k in metadata_fields}
+
                 node = TextNode(
                     text=text,
+                    metadata=metadata,
                 )
             nodes.append(node)
             similarities.append(hit["distance"])
