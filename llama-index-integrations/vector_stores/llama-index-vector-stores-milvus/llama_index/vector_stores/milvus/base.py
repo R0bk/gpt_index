@@ -76,6 +76,7 @@ class MilvusVectorStore(BasePydanticVectorStore):
         search_config (dict, optional): The configuration used for searching
             the Milvus index. Note that this must be compatible with the index
             type specified by `index_config`. Defaults to None.
+        output_fields (list[str], optional): The default fields to return in the query
             metadata results. Used when bringing your own collection, can be overwritten
             at the query level. Defaults to None.
 
